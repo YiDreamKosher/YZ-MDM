@@ -1,3 +1,4 @@
+import { initGuidedInstaller } from './guided-installer.js';
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb';
 import { AdbDaemonWebUsbDevice, AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb';
 import AdbWebCredentialStore from '@yume-chan/adb-credential-web';
@@ -320,7 +321,8 @@ const STRINGS = {
   },
 };
 
-let language = document.documentElement.lang || 'fr';
+let language = document.documentElement.lang || 'en';
+let runtimeBusy = false;
 let buildInfo = { releaseReady: false };
 let appState = null;
 let deviceOwnerActive = false;
@@ -465,11 +467,8 @@ function setStatus(text, kind = '') {
   status.className = `runtime-message ${kind}`;
 }
 
-function setStep(active) {
-  [1, 2, 3].forEach((number) => {
-    const node = el(`step${number}`);
-    node.classList.toggle('active', number === active);
-  });
+function setStep() {
+  updateButtons();
 }
 
 function selectedApps() {
@@ -520,6 +519,9 @@ function updateButtons() {
   el('ownerRemoveWarning').hidden = !deviceOwnerActive;
   el('removeOwnerBtn').disabled = !adb.adb || !deviceOwnerActive;
   el('removeOwnerBtn').hidden = !deviceOwnerActive;
+  if (runtimeBusy) document.querySelectorAll('#connectBtn, #checkBtn, #installBtn, #ownerBtn, #removeOwnerBtn, #storeZemer, #storeWaze, .select, #ownerConsent').forEach(node => { node.disabled = true; });
+  else { document.querySelectorAll('.select, #ownerConsent, #storeZemer, #storeWaze').forEach(node => { node.disabled = false; }); }
+  window.dispatchEvent(new CustomEvent('installer-state', {detail: {connected: Boolean(adb.adb), checked: Boolean(window.webAdbHasCheck), busy: runtimeBusy}}));
 }
 
 async function refreshOwnerStatus() {
@@ -574,7 +576,7 @@ function renderStatuses() {
 function refreshRuntimeCopy() {
   el('storeZemer').textContent = msg('storeZemer');
   el('storeWaze').textContent = msg('storeWaze');
-  el('ownerSummary').textContent = msg('ownerSummary');
+  el('ownerSummary').querySelector('.owner-summary-title').textContent = msg('ownerSummary');
   el('ownerWarning').textContent = msg('ownerWarning');
   el('ownerConsentCopy').textContent = msg('ownerConsent');
   el('ownerRemoveWarning').textContent = msg('ownerRemoveWarning');
@@ -841,8 +843,12 @@ function userError(error) {
 }
 
 async function handle(action) {
+  if (runtimeBusy) return;
+  runtimeBusy = true;
+  updateButtons();
   try { await action(); }
   catch (error) { setStatus(userError(error), 'error'); }
+  finally { runtimeBusy = false; el('connectBtn').disabled = false; updateButtons(); }
 }
 
 el('connectBtn').addEventListener('click', () => handle(async () => {
@@ -892,7 +898,7 @@ document.querySelectorAll('.select').forEach((input) => {
 });
 
 window.addEventListener('installer-language', (event) => {
-  language = event.detail || 'fr';
+  language = event.detail || 'en';
   if (adb.adb) {
     el('connectBtn').textContent = msg('disconnect');
     if (adb.info) {
@@ -932,3 +938,7 @@ window.webAdbConnected = false;
 window.webAdbHasCheck = false;
 window.webAdbSetStatus = setStatus;
 const buildInfoPromise = loadBuildInfo();
+
+
+initGuidedInstaller();
+updateButtons();
